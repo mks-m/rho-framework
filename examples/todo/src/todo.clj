@@ -1,20 +1,18 @@
 (ns ^:rho/module todo
-  (:require [next.jdbc :as jdbc]
-            [next.jdbc.result-set :as rs]
-            [rho.htmx :as htmx]
+  (:require [rho.htmx :as htmx]
             [rho.pedestal.html :as html]
-            [rho.pedestal.public :as public]))
+            [rho.pedestal.public :as public]
+            [rho.sqlite.db :as db]))
 
 (defn- fetch-todos [db]
-  (jdbc/execute! db
-                 ["select id, title, completed_at, created_at from todos order by created_at desc"]
-                 {:builder-fn rs/as-unqualified-lower-maps}))
+  (db/query db {:select [:id :title :completed_at :created_at]
+                :from [:todos]
+                :order-by [[:created_at :desc]]}))
 
 (defn- fetch-todo [db id]
-  (first
-   (jdbc/execute! db
-                  ["select id, title, completed_at from todos where id = ?" id]
-                  {:builder-fn rs/as-unqualified-lower-maps})))
+  (db/query-one db {:select [:id :title :completed_at]
+                    :from [:todos]
+                    :where [:= :id id]}))
 
 (defn- request-id [request] (parse-long (get-in request [:path-params :id])))
 
@@ -72,18 +70,24 @@
 
 (defn add [{{:keys [db]} :components :as request}]
   (when-let [title (some-> request :form-params :title str not-empty)]
-    (jdbc/execute! db ["insert into todos (title) values (?)" title]))
+    (db/execute! db {:insert-into :todos
+                     :values [{:title title}]}))
   (htmx/response request {:body (todo-list (fetch-todos db))}))
 
 (defn delete [{{:keys [db]} :components :as request}]
   (when-let [id (request-id request)]
-    (jdbc/execute! db ["delete from todos where id = ?" id]))
+    (db/execute! db {:delete-from :todos
+                     :where [:= :id id]}))
   (htmx/response request {:body (todo-list (fetch-todos db))}))
 
 (defn toggle [{{:keys [db]} :components :as request}]
   (when-let [id (request-id request)]
-    (jdbc/execute! db
-                   ["update todos set completed_at = case when completed_at is null then current_timestamp else null end, updated_at = current_timestamp where id = ?" id]))
+    (db/execute! db {:update :todos
+                     :set {:completed_at [:case
+                                          [:= :completed_at nil] [:raw "CURRENT_TIMESTAMP"]
+                                          :else nil]
+                           :updated_at [:raw "CURRENT_TIMESTAMP"]}
+                     :where [:= :id id]}))
   (htmx/response request {:body (todo-list (fetch-todos db))}))
 
 (defn edit-get [{{:keys [db]} :components :as request}]
@@ -108,7 +112,10 @@
 (defn edit-post [{{:keys [db]} :components :as request}]
   (when-let [id (request-id request)]
     (when-let [title (some-> request :form-params :title str not-empty)]
-      (jdbc/execute! db ["update todos set title = ?, updated_at = current_timestamp where id = ?" title id])))
+      (db/execute! db {:update :todos
+                       :set {:title title
+                             :updated_at [:raw "CURRENT_TIMESTAMP"]}
+                       :where [:= :id id]})))
   (htmx/response request {:body (todo-list (fetch-todos db))}))
 
 (def module
