@@ -6,3 +6,4 @@ target/
 .clojure-kondo/
 .clojure-lsp/
 repl.calva-repl
+app.db

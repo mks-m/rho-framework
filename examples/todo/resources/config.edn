@@ -1,0 +1,12 @@
+{:rho/app-ns todo
+ :rho/sqlite-url
+ #profile {:dev "jdbc:sqlite:./app.db"
+           :prod "jdbc:sqlite:/var/lib/app/app.db"}
+ :rho/sqlite-opts
+ #profile {:dev  {:migrate? true
+                  :migratus {:migration-dir "migrations"}
+                  :seed? true
+                  :seed-resource "seed.edn"
+                  :pool {:maximum-pool-size 5}}
+           :prod {:migrate? true
+                  :seed? false}}}
