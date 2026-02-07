@@ -1,0 +1,4 @@
+{:paths ["src" "resources"]
+ :deps {com.datomic/peer  {:mvn/version "1.0.7469"}
+        io.rkn/conformity {:mvn/version "0.5.4"}
+        rho/core {:local/root "../rho-core"}}}

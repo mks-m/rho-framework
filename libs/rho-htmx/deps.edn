@@ -1,0 +1,3 @@
+{:paths ["src" "resources"]
+ :deps {rho/core {:local/root "../rho-core"}
+        rho/pedestal {:local/root "../rho-pedestal"}}}

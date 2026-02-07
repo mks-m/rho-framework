@@ -1,0 +1,4 @@
+{:rho/app-port 8080
+ :rho/base-url "http://localhost:8080"
+ :rho/secure-headers #profile {:dev {:content-security-policy-settings {:object-src "none"}}
+                               :prod nil}}

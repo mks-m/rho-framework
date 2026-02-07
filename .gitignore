@@ -1,0 +1,8 @@
+/.clj-kondo
+/.lsp
+target/
+.cpcache/
+.nrepl-port
+.clojure-kondo/
+.clojure-lsp/
+repl.calva-repl

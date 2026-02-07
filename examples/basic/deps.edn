@@ -1,0 +1,9 @@
+{:paths ["src" "resources"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.4"}
+        rho/htmx {:local/root "../../libs/rho-htmx"}}
+ :aliases
+ {:build {:extra-deps {io.github.clojure/tools.build {:mvn/version "0.9.6"}}
+          :ns-default rho.core.build}
+  :dev {:extra-deps {org.clojure/tools.namespace {:mvn/version "1.4.4"}
+                     integrant/repl {:mvn/version "0.3.3"}
+                     io.github.clojure/tools.build {:mvn/version "0.9.6"}}}}}
