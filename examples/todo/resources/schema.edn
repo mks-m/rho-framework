@@ -1,0 +1,34 @@
+{:tables
+ [{:name "todos",
+   :columns
+   [{:name "id",
+     :type "INTEGER",
+     :not-null? false,
+     :default nil,
+     :primary-key? true,
+     :primary-key-position 1}
+    {:name "title",
+     :type "TEXT",
+     :not-null? true,
+     :default nil,
+     :primary-key? false}
+    {:name "completed_at",
+     :type "TIMESTAMP",
+     :not-null? false,
+     :default nil,
+     :primary-key? false}
+    {:name "created_at",
+     :type "TIMESTAMP",
+     :not-null? false,
+     :default "CURRENT_TIMESTAMP",
+     :primary-key? false}
+    {:name "updated_at",
+     :type "TIMESTAMP",
+     :not-null? false,
+     :default "CURRENT_TIMESTAMP",
+     :primary-key? false}
+    {:name "assigned_to",
+     :type "TEXT",
+     :not-null? false,
+     :default nil,
+     :primary-key? false}]}]}

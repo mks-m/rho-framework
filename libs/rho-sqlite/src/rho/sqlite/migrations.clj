@@ -4,7 +4,8 @@
             [clojure.string :as str]
             [clojure.tools.logging :as log]
             [migratus.core :as migratus]
-            [rho.core.config :as config])
+            [rho.core.config :as config]
+            [rho.sqlite.schema :as schema])
   (:import [com.zaxxer.hikari HikariDataSource]))
 
 (defn- sqlite-opts
@@ -106,7 +107,8 @@
           (log/info "SQLite migrations skipped (no migration resources found).")
           (do
             (log/info "SQLite migrations starting.")
-            (migratus/migrate (update-migration-dirs m-config dirs)))))
+            (migratus/migrate (update-migration-dirs m-config dirs))
+            (schema/write-schema! datasource))))
       (finally
         (.close ^HikariDataSource datasource)))))
 
@@ -125,7 +127,8 @@
             (log/info "SQLite rollback starting.")
             (if steps
               (migratus/rollback m-config steps)
-              (migratus/rollback m-config)))))
+              (migratus/rollback m-config))
+            (schema/write-schema! datasource))))
       (finally
         (.close ^HikariDataSource datasource)))))
 

@@ -1,0 +1,1 @@
+{:hooks {:analyze-call {rho.ar/defmodel hooks.rho-ar/defmodel}}}

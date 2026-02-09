@@ -6,7 +6,8 @@
             [clojure.tools.logging :as log]
             [integrant.core :as ig]
             [migratus.core :as migratus]
-            [next.jdbc :as jdbc])
+            [next.jdbc :as jdbc]
+            [rho.sqlite.schema :as schema])
   (:import [com.zaxxer.hikari HikariDataSource]))
 
 (defn- require-jdbc-url
@@ -73,7 +74,8 @@
       (log/info "SQLite migrations skipped (no migration resources found).")
       (do
         (log/info "SQLite migrations starting.")
-        (migratus/migrate (update-migration-dirs config dirs))))))
+        (migratus/migrate (update-migration-dirs config dirs))
+        (schema/write-schema! datasource)))))
 
 (defn- read-seed-resource
   [path]
