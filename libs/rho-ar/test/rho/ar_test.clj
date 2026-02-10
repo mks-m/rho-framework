@@ -2,7 +2,12 @@
   (:require [clojure.test :refer [deftest is testing]]
             [rho.ar :as ar]))
 
-(ar/defmodel Todo {})
+(ar/defmodel Todo {:table :todos
+                   :columns [:id :title]})
+
+(ar/defmodel Project {:table :projects
+                      :columns [:id :name]
+                      :prefix 'project-})
 
 (defrecord FakeAdapter [queries ones execs results]
   ar/Adapter
@@ -34,6 +39,16 @@
     (is (= :todos (ar/table todo-model)))
     (is (= :id (ar/primary-key todo-model)))
     (is (= [:id :title] (ar/columns todo-model)))))
+
+(deftest defmodel-emits-methods
+  (is (fn? (var-get (resolve 'todos-all))))
+  (is (fn? (var-get (resolve 'todos-where))))
+  (is (fn? (var-get (resolve 'todos-find))))
+  (is (fn? (var-get (resolve 'todos-create!))))
+  (is (fn? (var-get (resolve 'todos-update!))))
+  (is (fn? (var-get (resolve 'todos-delete!))))
+  (is (fn? (var-get (resolve 'todos-save!))))
+  (is (fn? (var-get (resolve 'project-all)))))
 
 (deftest where-builds-sql
   (let [{:keys [adapter queries]} (fake-adapter {:query [{:id 1 :title "A"}]})

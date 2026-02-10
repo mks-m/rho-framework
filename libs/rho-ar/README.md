@@ -9,12 +9,11 @@ ActiveRecord-style helpers for Rho using Clojure records and protocols.
   (:require [rho.ar :as ar]
             [rho.pedestal.html :as html]))
 
-(ar/defmodel Todo {:table :todos
-                   :columns [:id :title :completed_at :created_at]})
+;; table name is inferred from the name, columns are looked up in schema.edn
+(ar/defmodel Todo {})
 
 (defn index [{{:keys [db]} :components}]
-  (let [adapter (ar/next-jdbc-adapter db)
-        todos (ar/all adapter todo-model {:order-by [[:created_at :desc]]})]
+  (let [todos (all db {:order-by [[:created-at :desc]]})]
     (html/response
      {:title "Todos"
       :body [[:main
@@ -23,10 +22,9 @@ ActiveRecord-style helpers for Rho using Clojure records and protocols.
                      [:li {:data-id id} title])]]]})))
 
 (defn add [{{:keys [db]} :components :as request}]
-  (let [adapter (ar/next-jdbc-adapter db)
-        title (some-> request :form-params :title str not-empty)]
+  (let [title (some-> request :form-params :title str not-empty)]
     (when title
-      (ar/create! adapter todo-model {:title title}))
+      (create! db {:title title}))
     {:status 303
      :headers {"Location" "/"}}))
 ```
@@ -35,4 +33,6 @@ ActiveRecord-style helpers for Rho using Clojure records and protocols.
 
 - `next-jdbc-adapter` works with the `rho-sqlite` datasource component (`:db`).
 - `defmodel` defines a record type and a `<name>-model` var (e.g. `todo-model`).
+- `defmodel` also emits local helpers like `all`, `find`, `create!`, etc. The prefix is automatic when the namespace does not match the table name, or you can override with `:prefix`.
+- The generated helpers accept either a datasource/connectable or a pre-built adapter; a `next-jdbc-adapter` is created automatically when needed.
 - Use `ar/find`, `ar/where`, `ar/update!`, `ar/delete!`, and `ar/save!` for basic CRUD.

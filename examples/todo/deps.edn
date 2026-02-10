@@ -1,5 +1,6 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.4"}
+        rho/ar {:local/root "../../libs/rho-ar"}
         rho/htmx {:local/root "../../libs/rho-htmx"}
         rho/sqlite {:local/root "../../libs/rho-sqlite"}}
  :aliases

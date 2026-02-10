@@ -1,1 +1,1 @@
-{:config-paths ["../libs/rho-ar/util/clj-kondo/rho-ar"]}
+{:config-paths ["../libs/rho-ar/resources/clj-kondo/rho-ar"]}

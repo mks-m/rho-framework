@@ -5,15 +5,14 @@
     (ns my.app
       (:require [rho.ar :as ar]))
 
-    (ar/defmodel Todo {:table :todos
-                       :columns [:id :title :completed_at :created_at]})
+    (ar/defmodel Todo {})
 
     (defn handler [{{:keys [db]} :components}]
-      (let [adapter (ar/next-jdbc-adapter db)]
-        (ar/all adapter todo-model)))"
+      (todos-all db))"
   (:require [clojure.string :as str]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.tools.logging :as log]
             [honey.sql :as sql]
             [next.jdbc :as jdbc]
             [next.jdbc.result-set :as rs]))
@@ -45,15 +44,21 @@
 (defrecord NextJdbcAdapter [connectable sql-opts jdbc-opts]
   Adapter
   (query [_ sql-map opts]
-    (jdbc/execute! connectable
-                   (sql/format sql-map sql-opts)
-                   (merge default-jdbc-opts (or jdbc-opts {}) (or opts {}))))
+    (let [sql-vec (sql/format sql-map sql-opts)]
+      (log/info "rho-ar query" {:sql (first sql-vec)
+                                :params (vec (rest sql-vec))})
+      (jdbc/execute! connectable
+                     sql-vec
+                     (merge default-jdbc-opts (or jdbc-opts {}) (or opts {})))))
   (query-one [this sql-map opts]
     (first (query this sql-map opts)))
   (execute! [_ sql-map opts]
-    (jdbc/execute! connectable
-                   (sql/format sql-map sql-opts)
-                   (merge default-jdbc-opts (or jdbc-opts {}) (or opts {})))))
+    (let [sql-vec (sql/format sql-map sql-opts)]
+      (log/info "rho-ar execute" {:sql (first sql-vec)
+                                  :params (vec (rest sql-vec))})
+      (jdbc/execute! connectable
+                     sql-vec
+                     (merge default-jdbc-opts (or jdbc-opts {}) (or opts {}))))))
 
 (defn next-jdbc-adapter
   ([connectable]
@@ -72,9 +77,56 @@
   [type-sym]
   (symbol (str (kebab-case (name type-sym)) "-model")))
 
+(defn- normalize-column
+  [col]
+  (keyword (name col)))
+
 (defn- normalize-columns
   [cols]
-  (mapv (comp keyword name) cols))
+  (mapv normalize-column cols))
+
+(defn- schema-column
+  [col]
+  (-> col name (str/replace "_" "-") keyword))
+
+(defn- schema-columns
+  [cols]
+  (mapv schema-column cols))
+
+(defn normalize-row
+  "Convert underscored keys in a row map to dash-separated keywords."
+  [row]
+  (if (map? row)
+    (reduce-kv (fn [acc k v]
+                 (let [k-name (name k)
+                       k (if (str/includes? k-name "_")
+                           (keyword (str/replace k-name "_" "-"))
+                           k)]
+                   (assoc acc k v)))
+               {}
+               row)
+    row))
+
+(defn- namespace-segment
+  [ns-sym]
+  (let [ns-name (name ns-sym)]
+    (last (str/split ns-name #"\."))))
+
+(defn- prefix->string
+  [prefix]
+  (cond
+    (nil? prefix) nil
+    (string? prefix) prefix
+    (keyword? prefix) (name prefix)
+    (symbol? prefix) (name prefix)
+    :else (str prefix)))
+
+(defn- normalize-prefix
+  [prefix]
+  (when (seq prefix)
+    (if (str/ends-with? prefix "-")
+      prefix
+      (str prefix "-"))))
 
 (defn- schema-resource
   []
@@ -112,46 +164,140 @@
         (model-table-candidates model)))
 
 (defmacro defmodel
-  [name & [opts]]
+  [model & [opts]]
   (when (and (some? opts) (not (map? opts)))
-    (throw (ex-info "defmodel options must be a map." {:model name :opts opts})))
+    (throw (ex-info "defmodel options must be a map." {:model model :opts opts})))
   (let [opts (or opts {})
-        {:keys [table primary-key columns]} opts
+        {:keys [table primary-key columns prefix]} opts
+        explicit-prefix? (contains? opts :prefix)
         schema (when (or (nil? table) (not (seq columns)))
                  (read-schema))
         table-entry (when schema
                       (if table
                         (schema-table schema table)
-                        (schema-table-for-model schema name)))
+                        (schema-table-for-model schema model)))
         table (or table (some-> table-entry :name keyword))
         columns (or columns (some->> table-entry
                                      :columns
-                                     (mapv (comp keyword :name))))
+                                     (mapv :name)
+                                     schema-columns))
         _ (when (and (or (nil? table) (not (seq columns)))
                      (nil? schema))
             (throw (ex-info "schema.edn not found on classpath; provide :table and :columns."
-                            {:model name})))
+                            {:model model})))
         _ (when (and (nil? table) (nil? table-entry))
             (throw (ex-info "defmodel requires :table or a matching table in schema.edn."
-                            {:model name
-                             :candidates (model-table-candidates name)})))
+                            {:model model
+                             :candidates (model-table-candidates model)})))
         _ (when-not (seq columns)
             (throw (ex-info "defmodel requires non-empty :columns or schema.edn entry."
-                            {:model name :table table})))
+                            {:model model :table table})))
         pk (or primary-key :id)
         cols (normalize-columns columns)
         field-syms (mapv (comp symbol name) cols)
-        model-sym (model-symbol name)
-        map->sym (symbol (str "map->" name))]
+        model-sym (model-symbol model)
+        map->sym (symbol (str "map->" model))
+        table-kebab (some-> table table-name->string kebab-case)
+        ns-segment (namespace-segment (ns-name *ns*))
+        auto-prefix (when (and table-kebab (not= ns-segment table-kebab))
+                      (str table-kebab "-"))
+        prefix-str (if explicit-prefix?
+                     (normalize-prefix (prefix->string prefix))
+                     (normalize-prefix auto-prefix))
+        prefix-str (or prefix-str "")
+        all-sym (symbol (str prefix-str "all"))
+        where-sym (symbol (str prefix-str "where"))
+        find-sym (symbol (str prefix-str "find"))
+        create-sym (symbol (str prefix-str "create!"))
+        update-sym (symbol (str prefix-str "update!"))
+        delete-sym (symbol (str prefix-str "delete!"))
+        save-sym (symbol (str prefix-str "save!"))]
     `(do
-       (defrecord ~name ~field-syms)
+       (defrecord ~model ~field-syms)
        (def ~model-sym
          (->Model ~table ~pk ~cols
                   (fn [row#]
-                    (~map->sym (select-keys row# ~cols)))))
-       (extend-type ~name
+                    (~map->sym (select-keys (rho.ar/normalize-row row#) ~cols)))))
+       (extend-type ~model
          RecordEntity
          (model-of [_#] ~model-sym))
+       (defn ~all-sym
+         ([db#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/all adapter# ~model-sym)))
+         ([db# opts#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/all adapter# ~model-sym opts#))))
+       (defn ~where-sym
+         ([db# where#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/where adapter# ~model-sym where#)))
+         ([db# where# opts#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/where adapter# ~model-sym where# opts#))))
+       (defn ~find-sym
+         ([db# id#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/find adapter# ~model-sym id#)))
+         ([db# id# opts#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/find adapter# ~model-sym id# opts#))))
+       (defn ~create-sym
+         ([db# attrs#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/create! adapter# ~model-sym attrs#)))
+         ([db# attrs# opts#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/create! adapter# ~model-sym attrs# opts#))))
+       (defn ~update-sym
+         ([db# attrs#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/update! adapter# ~model-sym attrs#)))
+         ([db# attrs# opts#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/update! adapter# ~model-sym attrs# opts#))))
+       (defn ~delete-sym
+         ([db# id#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/delete! adapter# ~model-sym id#)))
+         ([db# id# opts#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/delete! adapter# ~model-sym id# opts#))))
+       (defn ~save-sym
+         ([db# entity#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/save! adapter# entity#)))
+         ([db# entity# opts#]
+          (let [adapter# (if (satisfies? rho.ar/Adapter db#)
+                           db#
+                           (rho.ar/next-jdbc-adapter db#))]
+            (rho.ar/save! adapter# entity# opts#))))
        ~model-sym)))
 
 (defn- normalize-where
@@ -197,6 +343,23 @@
   [model attrs]
   (select-keys attrs (columns model)))
 
+(def ^:private created-at-keys
+  [:created-at])
+
+(def ^:private updated-at-keys
+  [:updated-at])
+
+(defn- timestamp-key
+  [model candidates]
+  (let [cols (set (columns model))]
+    (some (fn [k] (when (contains? cols k) k)) candidates)))
+
+(defn- inject-timestamp
+  [attrs key]
+  (if (and key (not (contains? attrs key)))
+    (assoc attrs key [:raw "CURRENT_TIMESTAMP"])
+    attrs))
+
 (defn- generated-keys
   [result]
   (cond
@@ -241,18 +404,22 @@
   ([adapter model attrs]
    (create! adapter model attrs nil))
   ([adapter model attrs opts]
-   (let [attrs (filtered-attrs model (attrs->map attrs))
+   (let [attrs (attrs->map attrs)
+         attrs (inject-timestamp attrs (timestamp-key model created-at-keys))
+         attrs (filtered-attrs model attrs)
          sql-map {:insert-into (table model)
                   :values [attrs]}
          result (execute! adapter sql-map (jdbc-opts opts))
          merged (merge attrs (or (generated-keys result) {}))]
-     ((record-fn model) merged))))
+    ((record-fn model) merged))))
 
 (defn update!
   ([adapter model attrs]
    (update! adapter model attrs nil))
   ([adapter model attrs opts]
-   (let [attrs (filtered-attrs model (attrs->map attrs))
+   (let [attrs (attrs->map attrs)
+         attrs (inject-timestamp attrs (timestamp-key model updated-at-keys))
+         attrs (filtered-attrs model attrs)
          pk (primary-key model)
          id (get attrs pk)
          set-map (dissoc attrs pk)]
